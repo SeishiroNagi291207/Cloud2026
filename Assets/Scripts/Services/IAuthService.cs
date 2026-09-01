@@ -28,9 +28,13 @@ namespace Cloud2026.Services
         /// </summary>
         string Username { get; }
 
+        /// <summary>True si la sesión tiene una cuenta de Unity (Player Accounts) vinculada.</summary>
+        bool IsUnityAccountLinked { get; }
+
         /// <summary>
-        /// True si hay sesión iniciada pero sin credenciales vinculadas. Ese progreso se pierde
-        /// al desinstalar el juego o cambiar de dispositivo.
+        /// True si hay sesión iniciada pero sin ninguna identidad persistente vinculada
+        /// (ni usuario/contraseña ni cuenta de Unity). Ese progreso se pierde al desinstalar
+        /// el juego o cambiar de dispositivo.
         /// </summary>
         bool IsAnonymous { get; }
 
@@ -48,6 +52,18 @@ namespace Cloud2026.Services
         /// así que el progreso del jugador sobrevive al cambio de dispositivo.
         /// </summary>
         Task<bool> LinkUsernamePasswordAsync(string username, string password);
+
+        /// <summary>
+        /// Abre el navegador del sistema para iniciar sesión con una cuenta de Unity
+        /// (Unity Player Accounts) y completa el login en UGS con ese token.
+        /// </summary>
+        Task<bool> SignInWithUnityAsync();
+
+        /// <summary>
+        /// Vincula una cuenta de Unity a la sesión anónima en curso. Igual que
+        /// <see cref="LinkUsernamePasswordAsync"/>, conserva el PlayerId.
+        /// </summary>
+        Task<bool> LinkWithUnityAsync();
 
         void SignOut(bool clearCredentials = false);
     }

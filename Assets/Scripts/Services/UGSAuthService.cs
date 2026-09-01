@@ -4,6 +4,7 @@ using UnityEngine;
 using Unity.Services.Core;
 using Unity.Services.Core.Environments;
 using Unity.Services.Authentication;
+using Unity.Services.Authentication.PlayerAccounts;
 
 namespace Cloud2026.Services
 {
@@ -36,16 +37,28 @@ namespace Cloud2026.Services
         public string PlayerName => IsSignedIn ? AuthenticationService.Instance.PlayerName : string.Empty;
 
         /// <summary>
-        /// Nombre de usuario de la cuenta con credenciales. Vacío si la sesión es anónima:
-        /// el SDK devuelve null en PlayerInfo.Username mientras no haya credenciales.
+        /// Nombre de usuario de la cuenta con credenciales. Vacío si la sesión es anónima o si
+        /// solo tiene una cuenta de Unity vinculada: el SDK devuelve null en PlayerInfo.Username
+        /// mientras no haya credenciales de usuario/contraseña.
         /// </summary>
         public string Username =>
             IsSignedIn ? AuthenticationService.Instance.PlayerInfo?.Username ?? string.Empty : string.Empty;
 
         /// <summary>
-        /// Sesión iniciada pero sin credenciales vinculadas: ese progreso se pierde al desinstalar.
+        /// PlayerInfo.GetUnityId() solo devuelve algo cuando la sesión tiene una identidad de
+        /// Unity Player Accounts vinculada (por SignInWithUnityAsync o LinkWithUnityAsync).
         /// </summary>
-        public bool IsAnonymous => IsSignedIn && string.IsNullOrEmpty(Username);
+        public bool IsUnityAccountLinked =>
+            IsSignedIn && !string.IsNullOrEmpty(AuthenticationService.Instance.PlayerInfo?.GetUnityId());
+
+        /// <summary>
+        /// Sesión iniciada pero sin ninguna identidad persistente vinculada: ese progreso se
+        /// pierde al desinstalar. Antes de sumar Unity Player Accounts esto solo miraba
+        /// Username, así que un jugador logueado solo con su cuenta de Unity (sin
+        /// usuario/contraseña) se veía como anónimo y le salía el aviso de vincular cuenta
+        /// aunque ya tuviera una identidad real.
+        /// </summary>
+        public bool IsAnonymous => IsSignedIn && string.IsNullOrEmpty(Username) && !IsUnityAccountLinked;
 
         private Task _initializationTask;
         private bool _isSigningIn = false;
@@ -216,6 +229,12 @@ namespace Cloud2026.Services
                 }
 
                 AuthenticationService.Instance.SignOut();
+
+                if (PlayerAccountService.Instance.IsSignedIn)
+                {
+                    PlayerAccountService.Instance.SignOut();
+                }
+
                 Debug.Log("[UGSAuthService] Sesión cerrada correctamente.");
             }
             catch (Exception ex)
@@ -267,6 +286,140 @@ namespace Cloud2026.Services
                 () => AuthenticationService.Instance.AddUsernamePasswordAsync(username, password),
                 username,
                 isLink: true);
+        }
+
+        /// <summary>
+        /// Abre el navegador del sistema para iniciar sesión con una cuenta de Unity y, con el
+        /// token que devuelve, completa el login en UGS. El evento SignedIn de
+        /// AuthenticationService (ya suscrito en SubscribeToEvents) dispara OnSignedIn solo con
+        /// esto: no hace falta escuchar también los eventos de PlayerAccountService.
+        /// </summary>
+        public async Task<bool> SignInWithUnityAsync()
+        {
+            if (_isSigningIn)
+            {
+                Debug.LogWarning("[UGSAuthService] Ya hay una operación de cuenta en curso; se ignora el login con Unity.");
+                return false;
+            }
+
+            if (!IsInitialized)
+            {
+                await InitializeAsync();
+                if (!IsInitialized)
+                {
+                    OnSignInFailed?.Invoke("No se pudo contactar con Unity Gaming Services.");
+                    return false;
+                }
+            }
+
+            _isSigningIn = true;
+
+            try
+            {
+                if (!PlayerAccountService.Instance.IsSignedIn)
+                {
+                    Debug.Log("[UGSAuthService] Abriendo el navegador para iniciar sesión con una cuenta de Unity...");
+                    await PlayerAccountService.Instance.StartSignInAsync();
+                }
+
+                await AuthenticationService.Instance.SignInWithUnityAsync(PlayerAccountService.Instance.AccessToken);
+                Debug.Log($"[UGSAuthService] Login con cuenta de Unity correcto. PlayerId: {PlayerId}");
+                return true;
+            }
+            catch (PlayerAccountsException paEx)
+            {
+                string errorMsg = $"No se pudo iniciar sesión con Unity: {paEx.Message}";
+                Debug.LogError($"[UGSAuthService] {errorMsg}");
+                OnSignInFailed?.Invoke(errorMsg);
+                return false;
+            }
+            catch (AuthenticationException authEx)
+            {
+                string errorMsg = TranslateAuthError(authEx, "login con Unity");
+                Debug.LogError($"[UGSAuthService] {errorMsg} (ErrorCode {authEx.ErrorCode}): {authEx.Message}");
+                OnSignInFailed?.Invoke(errorMsg);
+                return false;
+            }
+            catch (RequestFailedException reqEx)
+            {
+                string errorMsg = $"Error de conexión durante el login con Unity ({reqEx.ErrorCode}): {reqEx.Message}";
+                Debug.LogError($"[UGSAuthService] {errorMsg}");
+                OnSignInFailed?.Invoke(errorMsg);
+                return false;
+            }
+            finally
+            {
+                _isSigningIn = false;
+            }
+        }
+
+        /// <summary>
+        /// Vincula una cuenta de Unity a la sesión anónima en curso. El PlayerId no cambia,
+        /// igual que al vincular usuario y contraseña.
+        /// </summary>
+        public async Task<bool> LinkWithUnityAsync()
+        {
+            if (!IsSignedIn)
+            {
+                const string msg = "No hay sesión activa que vincular. Entra como invitado primero.";
+                Debug.LogWarning($"[UGSAuthService] {msg}");
+                OnSignInFailed?.Invoke(msg);
+                return false;
+            }
+
+            if (_isSigningIn)
+            {
+                Debug.LogWarning("[UGSAuthService] Hay otra operación de cuenta en curso; se ignora la vinculación con Unity.");
+                return false;
+            }
+
+            _isSigningIn = true;
+
+            try
+            {
+                if (!PlayerAccountService.Instance.IsSignedIn)
+                {
+                    Debug.Log("[UGSAuthService] Abriendo el navegador para vincular una cuenta de Unity...");
+                    await PlayerAccountService.Instance.StartSignInAsync();
+                }
+
+                await AuthenticationService.Instance.LinkWithUnityAsync(PlayerAccountService.Instance.AccessToken);
+                Debug.Log($"[UGSAuthService] Cuenta de Unity vinculada. PlayerId conservado: {PlayerId}");
+                OnAccountLinked?.Invoke("tu cuenta de Unity");
+                return true;
+            }
+            catch (AuthenticationException authEx) when (authEx.ErrorCode == AuthenticationErrorCodes.AccountAlreadyLinked)
+            {
+                const string msg = "Esa cuenta de Unity ya está vinculada a otro jugador.";
+                Debug.LogError($"[UGSAuthService] {msg} (ErrorCode {authEx.ErrorCode}): {authEx.Message}");
+                OnSignInFailed?.Invoke(msg);
+                return false;
+            }
+            catch (PlayerAccountsException paEx)
+            {
+                string errorMsg = $"No se pudo vincular la cuenta de Unity: {paEx.Message}";
+                Debug.LogError($"[UGSAuthService] {errorMsg}");
+                OnSignInFailed?.Invoke(errorMsg);
+                return false;
+            }
+            catch (AuthenticationException authEx)
+            {
+                string errorMsg = TranslateAuthError(authEx, "vinculación con Unity");
+                Debug.LogError($"[UGSAuthService] {errorMsg} (ErrorCode {authEx.ErrorCode}): {authEx.Message}");
+                OnSignInFailed?.Invoke(errorMsg);
+                return false;
+            }
+            catch (RequestFailedException reqEx)
+            {
+                string errorMsg = $"Error de conexión durante la vinculación con Unity ({reqEx.ErrorCode}): {reqEx.Message}";
+                Debug.LogError($"[UGSAuthService] {errorMsg}");
+                OnSignInFailed?.Invoke(errorMsg);
+                return false;
+            }
+            finally
+            {
+                _isSigningIn = false;
+            }
         }
 
         /// <summary>

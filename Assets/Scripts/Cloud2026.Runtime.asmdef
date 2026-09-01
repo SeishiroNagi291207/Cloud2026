@@ -5,6 +5,7 @@
         "Unity.Services.Core",
         "Unity.Services.Core.Environments",
         "Unity.Services.Authentication",
+        "Unity.Services.Authentication.PlayerAccounts",
         "Unity.Services.CloudCode",
         "Unity.InputSystem",
         "UnityEngine.UI",

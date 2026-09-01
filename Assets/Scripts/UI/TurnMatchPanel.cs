@@ -49,6 +49,16 @@ namespace Cloud2026.UI
         [Tooltip("Cada cuántos segundos se pregunta al servidor si el rival ya ha jugado.")]
         [SerializeField] private float pollIntervalSeconds = 2f;
 
+        [Header("Navegación (flujo unificado)")]
+        [Tooltip("Root del Menú principal externo (p.ej. AnonymousLoginUI) a reactivar al volver.")]
+        [SerializeField] private GameObject mainMenuRoot;
+
+        [Tooltip("GameObject a desactivar al volver al menú. Si se deja vacío, se desactiva este mismo objeto.")]
+        [SerializeField] private GameObject partidaRoot;
+
+        [Tooltip("Botón visible solo en Lobby para volver al Menú principal.")]
+        [SerializeField] private Button backToMenuButton;
+
         private IAuthService _authService;
         private ITurnMatchService _matchService;
 
@@ -77,6 +87,7 @@ namespace Cloud2026.UI
             if (passTurnButton != null) passTurnButton.onClick.RemoveListener(OnPassTurnClicked);
             if (resendTurnButton != null) resendTurnButton.onClick.RemoveListener(OnResendTurnClicked);
             if (leaveMatchButton != null) leaveMatchButton.onClick.RemoveListener(OnLeaveMatchClicked);
+            if (backToMenuButton != null) backToMenuButton.onClick.RemoveListener(OnBackToMenuClicked);
         }
 
         private void Update()
@@ -124,6 +135,7 @@ namespace Cloud2026.UI
             if (passTurnButton != null) passTurnButton.onClick.AddListener(OnPassTurnClicked);
             if (resendTurnButton != null) resendTurnButton.onClick.AddListener(OnResendTurnClicked);
             if (leaveMatchButton != null) leaveMatchButton.onClick.AddListener(OnLeaveMatchClicked);
+            if (backToMenuButton != null) backToMenuButton.onClick.AddListener(OnBackToMenuClicked);
         }
 
         // --- Login ---------------------------------------------------------
@@ -214,6 +226,29 @@ namespace Cloud2026.UI
             _matchService.LeaveMatch();
             _view = null;
             GoTo(Screen.Lobby);
+        }
+
+        /// <summary>
+        /// Cierra la Partida y devuelve el control al Menú principal externo. Solo
+        /// tiene sentido desde Lobby: en Match hay que salir de la partida primero.
+        /// </summary>
+        private void OnBackToMenuClicked()
+        {
+            if (_isBusy) return;
+
+            if (mainMenuRoot != null)
+            {
+                mainMenuRoot.SetActive(true);
+            }
+
+            if (partidaRoot != null)
+            {
+                partidaRoot.SetActive(false);
+            }
+            else
+            {
+                gameObject.SetActive(false);
+            }
         }
 
         private async void RefreshMatch()
@@ -367,6 +402,7 @@ namespace Cloud2026.UI
             if (createMatchButton != null) createMatchButton.interactable = !busy;
             if (joinMatchButton != null) joinMatchButton.interactable = !busy;
             if (leaveMatchButton != null) leaveMatchButton.interactable = !busy;
+            if (backToMenuButton != null) backToMenuButton.interactable = !busy;
 
             if (busy)
             {

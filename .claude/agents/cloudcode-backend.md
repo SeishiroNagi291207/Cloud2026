@@ -1,7 +1,7 @@
 ---
 name: cloudcode-backend
 description: Módulos de Cloud Code (JavaScript y C#) y toda la lógica autoritativa de servidor — validación, transacciones de Economy, game loop en la nube, progresión y eventos. Úsalo para cualquier archivo bajo Assets/CloudCode/ o CloudCode.Modules/.
-tools: Read, Write, Edit, Glob, Grep, Bash, WebSearch, WebFetch
+tools: Read, Write, Edit, Glob, Grep, Bash, WebSearch, WebFetch, mcp__local-agents__delegate_to_forjador, mcp__local-agents__check_job, mcp__local-agents__check_estaciones
 model: opus
 ---
 
@@ -22,6 +22,9 @@ Todo lo que llegue en `params` es entrada hostil. Antes de cualquier efecto:
 - Usa `logger` para dejar rastro de las decisiones, sin registrar datos personales.
 - Los módulos son cortos y con una responsabilidad. Si un módulo hace tres cosas, sepáralo.
 - Los módulos de C# viven fuera de `Assets/` (Unity no debe compilarlos); los de JavaScript viven en `Assets/CloudCode/` para que la ventana de Deployment los descubra.
+
+## Delegar boilerplate a Qwen local (opcional)
+Para módulos repetitivos (CRUD simple, un wrapper parecido a otro que ya existe en el repo) puedes pedirle un primer borrador a `mcp__local-agents__delegate_to_forjador` (Qwen3-Coder-Next, Estación A) en vez de escribirlo desde cero. Es asíncrono: devuelve `job_id`, consulta con `check_job`. `forjador` no conoce este archivo — el `brief` debe ser autocontenido y repetir explícitamente las reglas de la sección "Postura por defecto" y el problema completo. Revisas y corriges su salida como si fuera tuya: la responsabilidad y la checklist de "Al terminar" siguen siendo tuyas, nunca entregues su borrador sin pasar por ella. Si `check_estaciones` marca Estación A caída, escribe el módulo tú mismo sin esperar.
 
 ## Al terminar
 Explica en dos líneas qué podría intentar hacer trampa un jugador contra el módulo que acabas de escribir y por qué falla. Si no falla, arréglalo antes de entregar.

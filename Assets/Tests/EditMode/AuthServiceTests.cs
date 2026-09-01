@@ -23,7 +23,8 @@ namespace Cloud2026.Tests
             public string PlayerId { get; set; }
             public string PlayerName { get; set; }
             public string Username { get; set; } = string.Empty;
-            public bool IsAnonymous => IsSignedIn && string.IsNullOrEmpty(Username);
+            public bool IsUnityAccountLinked { get; set; }
+            public bool IsAnonymous => IsSignedIn && string.IsNullOrEmpty(Username) && !IsUnityAccountLinked;
 
             public bool ShouldFail { get; set; }
             public string SimulatedPlayerId { get; set; } = "test-player-123456";
@@ -101,6 +102,40 @@ namespace Cloud2026.Tests
 
                 Username = username;
                 OnAccountLinked?.Invoke(username);
+                return Task.FromResult(true);
+            }
+
+            public Task<bool> SignInWithUnityAsync()
+            {
+                if (ShouldFail)
+                {
+                    OnSignInFailed?.Invoke("Login con Unity rechazado");
+                    return Task.FromResult(false);
+                }
+
+                IsSignedIn = true;
+                PlayerId = SimulatedPlayerId;
+                IsUnityAccountLinked = true;
+                OnSignedIn?.Invoke(PlayerId);
+                return Task.FromResult(true);
+            }
+
+            public Task<bool> LinkWithUnityAsync()
+            {
+                if (!IsSignedIn)
+                {
+                    OnSignInFailed?.Invoke("No hay sesión que vincular");
+                    return Task.FromResult(false);
+                }
+
+                if (ShouldFail)
+                {
+                    OnSignInFailed?.Invoke("Esa cuenta de Unity ya está vinculada a otro jugador");
+                    return Task.FromResult(false);
+                }
+
+                IsUnityAccountLinked = true;
+                OnAccountLinked?.Invoke("tu cuenta de Unity");
                 return Task.FromResult(true);
             }
         }
@@ -203,6 +238,56 @@ namespace Cloud2026.Tests
             Assert.IsTrue(auth.IsSignedIn);
             Assert.AreEqual("jugador02", auth.Username);
             Assert.IsFalse(auth.IsAnonymous);
+        }
+
+        [Test]
+        public async Task FakeAuthService_SignInWithUnity_RaisesSignedInEventAndSetsState()
+        {
+            var auth = new FakeAuthService();
+            string receivedPlayerId = null;
+            auth.OnSignedIn += id => receivedPlayerId = id;
+
+            bool result = await auth.SignInWithUnityAsync();
+
+            Assert.IsTrue(result);
+            Assert.IsTrue(auth.IsSignedIn);
+            Assert.AreEqual("test-player-123456", receivedPlayerId);
+            Assert.IsTrue(auth.IsUnityAccountLinked);
+            Assert.IsFalse(auth.IsAnonymous,
+                "Entrar solo con una cuenta de Unity (sin usuario/contraseña) no debe verse como invitado.");
+        }
+
+        [Test]
+        public async Task FakeAuthService_LinkWithUnity_KeepsPlayerIdAndRaisesAccountLinked()
+        {
+            var auth = new FakeAuthService();
+            await auth.SignInAnonymouslyAsync();
+            string playerIdBeforeLink = auth.PlayerId;
+
+            string linkedLabel = null;
+            auth.OnAccountLinked += label => linkedLabel = label;
+
+            bool result = await auth.LinkWithUnityAsync();
+
+            Assert.IsTrue(result);
+            Assert.IsNotNull(linkedLabel);
+            Assert.IsTrue(auth.IsUnityAccountLinked);
+            Assert.IsFalse(auth.IsAnonymous, "Tras vincular una cuenta de Unity, la sesión deja de ser anónima.");
+            Assert.AreEqual(playerIdBeforeLink, auth.PlayerId,
+                "Vincular una cuenta de Unity no debe cambiar el PlayerId: el progreso se conserva.");
+        }
+
+        [Test]
+        public async Task FakeAuthService_LinkWithUnityWithoutSession_Fails()
+        {
+            var auth = new FakeAuthService();
+            string error = null;
+            auth.OnSignInFailed += err => error = err;
+
+            bool result = await auth.LinkWithUnityAsync();
+
+            Assert.IsFalse(result);
+            Assert.IsNotNull(error);
         }
     }
 }

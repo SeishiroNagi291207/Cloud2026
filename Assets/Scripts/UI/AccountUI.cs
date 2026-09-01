@@ -33,6 +33,9 @@ namespace Cloud2026.UI
         [Tooltip("Inicia sesión en una cuenta ya existente.")]
         [SerializeField] private Button signInButton;
 
+        [Tooltip("Abre el navegador para iniciar sesión con una cuenta de Unity (Unity Player Accounts).")]
+        [SerializeField] private Button signInWithUnityButton;
+
         [Header("Vinculación (panel de sesión iniciada)")]
         [Tooltip("Contenedor visible solo mientras la sesión sea anónima.")]
         [SerializeField] private GameObject linkGroup;
@@ -40,6 +43,9 @@ namespace Cloud2026.UI
         [SerializeField] private TMP_InputField linkUsernameInput;
         [SerializeField] private TMP_InputField linkPasswordInput;
         [SerializeField] private Button linkButton;
+
+        [Tooltip("Vincula una cuenta de Unity a la sesión anónima en curso.")]
+        [SerializeField] private Button linkWithUnityButton;
 
         [Tooltip("Muestra si la sesión es de invitado o a qué cuenta está vinculada.")]
         [SerializeField] private TextMeshProUGUI accountStateText;
@@ -77,7 +83,9 @@ namespace Cloud2026.UI
 
             if (signUpButton != null) signUpButton.onClick.RemoveListener(OnSignUpClicked);
             if (signInButton != null) signInButton.onClick.RemoveListener(OnSignInClicked);
+            if (signInWithUnityButton != null) signInWithUnityButton.onClick.RemoveListener(OnSignInWithUnityClicked);
             if (linkButton != null) linkButton.onClick.RemoveListener(OnLinkClicked);
+            if (linkWithUnityButton != null) linkWithUnityButton.onClick.RemoveListener(OnLinkWithUnityClicked);
         }
 
         private void ConnectAuthService()
@@ -107,7 +115,9 @@ namespace Cloud2026.UI
         {
             if (signUpButton != null) signUpButton.onClick.AddListener(OnSignUpClicked);
             if (signInButton != null) signInButton.onClick.AddListener(OnSignInClicked);
+            if (signInWithUnityButton != null) signInWithUnityButton.onClick.AddListener(OnSignInWithUnityClicked);
             if (linkButton != null) linkButton.onClick.AddListener(OnLinkClicked);
+            if (linkWithUnityButton != null) linkWithUnityButton.onClick.AddListener(OnLinkWithUnityClicked);
         }
 
         private async void OnSignUpClicked()
@@ -142,6 +152,35 @@ namespace Cloud2026.UI
                 SetStatus($"Bienvenido de nuevo, {user}.", ColorOk);
                 ClearPasswords();
             }
+
+            UpdateUIState();
+        }
+
+        private async void OnSignInWithUnityClicked()
+        {
+            if (_isBusy || _authService == null) return;
+
+            SetBusy(true);
+            SetStatus("Abriendo el navegador para iniciar sesión con Unity...", Color.white);
+            bool ok = await _authService.SignInWithUnityAsync();
+            SetBusy(false);
+
+            if (ok)
+            {
+                SetStatus("Sesión iniciada con tu cuenta de Unity.", ColorOk);
+            }
+
+            UpdateUIState();
+        }
+
+        private async void OnLinkWithUnityClicked()
+        {
+            if (_isBusy || _authService == null) return;
+
+            SetBusy(true);
+            SetStatus("Abriendo el navegador para vincular tu cuenta de Unity...", Color.white);
+            await _authService.LinkWithUnityAsync();
+            SetBusy(false);
 
             UpdateUIState();
         }
@@ -235,9 +274,16 @@ namespace Cloud2026.UI
                     accountStateText.text = "Sesión de invitado: vincula una cuenta para no perder el progreso.";
                     accountStateText.color = ColorAviso;
                 }
-                else
+                else if (!string.IsNullOrEmpty(_authService.Username))
                 {
                     accountStateText.text = $"Cuenta: <color=#FFE600>{_authService.Username}</color>";
+                    accountStateText.color = Color.white;
+                }
+                else
+                {
+                    // No anónimo pero sin Username: la identidad vinculada es una cuenta de
+                    // Unity, no usuario/contraseña.
+                    accountStateText.text = "Cuenta: <color=#FFE600>cuenta de Unity</color>";
                     accountStateText.color = Color.white;
                 }
             }
@@ -263,7 +309,9 @@ namespace Cloud2026.UI
 
             if (signUpButton != null) signUpButton.interactable = canInteract;
             if (signInButton != null) signInButton.interactable = canInteract;
+            if (signInWithUnityButton != null) signInWithUnityButton.interactable = canInteract;
             if (linkButton != null) linkButton.interactable = canInteract;
+            if (linkWithUnityButton != null) linkWithUnityButton.interactable = canInteract;
             if (usernameInput != null) usernameInput.interactable = canInteract;
             if (passwordInput != null) passwordInput.interactable = canInteract;
             if (linkUsernameInput != null) linkUsernameInput.interactable = canInteract;
