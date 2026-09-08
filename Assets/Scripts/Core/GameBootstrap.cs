@@ -22,6 +22,9 @@ namespace Cloud2026.Core
         [Tooltip("Cliente del módulo TurnMatch: partidas por turnos con idempotencia.")]
         [SerializeField] private UGSTurnMatchService turnMatchService;
 
+        [Tooltip("Wrapper de Cloud Save: guarda y carga el perfil del jugador. Necesita sesión iniciada.")]
+        [SerializeField] private UGSCloudSaveService cloudSaveService;
+
         [Header("Configuración de Arranque")]
         [Tooltip("Si es true, no destruye este GameObject al cargar nuevas escenas.")]
         [SerializeField] private bool persistAcrossScenes = true;
@@ -34,6 +37,8 @@ namespace Cloud2026.Core
         public ICloudCodeService CloudCodeService => cloudCodeService;
 
         public ITurnMatchService TurnMatchService => turnMatchService;
+
+        public ICloudSaveService CloudSaveService => cloudSaveService;
 
         public event Action OnServicesReady;
 
@@ -74,6 +79,7 @@ namespace Cloud2026.Core
             authService = EnsureComponent(authService);
             cloudCodeService = EnsureComponent(cloudCodeService);
             turnMatchService = EnsureComponent(turnMatchService);
+            cloudSaveService = EnsureComponent(cloudSaveService);
         }
 
         /// <summary>

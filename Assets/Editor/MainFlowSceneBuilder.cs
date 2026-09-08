@@ -1,4 +1,5 @@
 using UnityEditor;
+using UnityEditor.Events;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -76,12 +77,14 @@ namespace Cloud2026.EditorTools
                 typeof(UGSAuthService),
                 typeof(UGSCloudCodeService),
                 typeof(UGSTurnMatchService),
+                typeof(UGSCloudSaveService),
                 typeof(GameBootstrap));
 
             var serialized = new SerializedObject(go.GetComponent<GameBootstrap>());
             UiFactory.Wire(serialized, "authService", go.GetComponent<UGSAuthService>());
             UiFactory.Wire(serialized, "cloudCodeService", go.GetComponent<UGSCloudCodeService>());
             UiFactory.Wire(serialized, "turnMatchService", go.GetComponent<UGSTurnMatchService>());
+            UiFactory.Wire(serialized, "cloudSaveService", go.GetComponent<UGSCloudSaveService>());
             serialized.FindProperty("autoLoginAnonymous").boolValue = false;
             serialized.ApplyModifiedPropertiesWithoutUndo();
         }
@@ -97,11 +100,13 @@ namespace Cloud2026.EditorTools
         {
             var resources = UiFactory.Resources();
 
-            // La Partida se construye primero para poder pasar su GameObject como
-            // gameplayRoot del login; se desactiva al final, cuando ya no hace
-            // falta que esté activa para que SerializedObject pueda escribir en ella.
+            // Partida y Perfil se construyen primero para poder pasar sus GameObject
+            // al login (gameplayRoot de "Jugar", destino de "Ver perfil"); se
+            // desactivan al final, cuando ya no hace falta que estén activos para
+            // que SerializedObject pueda escribir en ellos.
             var partidaRoot = BuildPartidaRoot(canvasTransform, resources);
-            var loginRoot = BuildLoginRoot(canvasTransform, resources, partidaRoot);
+            var perfilRoot = BuildPerfilRoot(canvasTransform, resources);
+            var loginRoot = BuildLoginRoot(canvasTransform, resources, partidaRoot, perfilRoot);
 
             var turnMatchPanel = partidaRoot.GetComponent<TurnMatchPanel>();
             var partidaSerialized = new SerializedObject(turnMatchPanel);
@@ -109,13 +114,20 @@ namespace Cloud2026.EditorTools
             UiFactory.Wire(partidaSerialized, "partidaRoot", partidaRoot);
             partidaSerialized.ApplyModifiedPropertiesWithoutUndo();
 
+            var profilePanel = perfilRoot.GetComponent<PlayerProfilePanel>();
+            var perfilSerialized = new SerializedObject(profilePanel);
+            UiFactory.Wire(perfilSerialized, "mainMenuRoot", loginRoot);
+            UiFactory.Wire(perfilSerialized, "perfilRoot", perfilRoot);
+            perfilSerialized.ApplyModifiedPropertiesWithoutUndo();
+
             partidaRoot.SetActive(false);
+            perfilRoot.SetActive(false);
         }
 
         // --- Login + Menú principal -----------------------------------------
 
         private static GameObject BuildLoginRoot(
-            Transform parent, TMP_DefaultControls.Resources resources, GameObject partidaRoot)
+            Transform parent, TMP_DefaultControls.Resources resources, GameObject partidaRoot, GameObject perfilRoot)
         {
             var root = UiFactory.CreatePanel(parent, "LoginRoot", PanelWidth, withBackground: true);
 
@@ -128,7 +140,14 @@ namespace Cloud2026.EditorTools
             var loggedIn = BuildLoggedInPanel(root.transform, resources,
                 out var playerIdText, out var accountStateText, out var linkGroup,
                 out var linkUsernameInput, out var linkPasswordInput, out var linkButton, out var linkWithUnityButton,
-                out var playButton, out var signOutButton, out var newGuestButton);
+                out var playButton, out var viewProfileButton, out var signOutButton, out var newGuestButton);
+
+            // "Ver perfil" no pasa por AnonymousLoginUI (que sólo conoce UN
+            // gameplayRoot, el de "Jugar"): se engancha aquí como listener
+            // persistente, igual que si se arrastraran los GameObject a mano en
+            // el Inspector.
+            UnityEventTools.AddBoolPersistentListener(viewProfileButton.onClick, root.SetActive, false);
+            UnityEventTools.AddBoolPersistentListener(viewProfileButton.onClick, perfilRoot.SetActive, true);
 
             // Compartidos entre AnonymousLoginUI y AccountUI: una sola línea de
             // estado y un solo spinner para toda el área de login, no una por
@@ -209,8 +228,8 @@ namespace Cloud2026.EditorTools
             out GameObject linkGroup, out TMP_InputField linkUsernameInput,
             out TMP_InputField linkPasswordInput, out UnityEngine.UI.Button linkButton,
             out UnityEngine.UI.Button linkWithUnityButton,
-            out UnityEngine.UI.Button playButton, out UnityEngine.UI.Button signOutButton,
-            out UnityEngine.UI.Button newGuestButton)
+            out UnityEngine.UI.Button playButton, out UnityEngine.UI.Button viewProfileButton,
+            out UnityEngine.UI.Button signOutButton, out UnityEngine.UI.Button newGuestButton)
         {
             var panel = UiFactory.CreatePanel(parent, "LoggedInPanel", PanelWidth - 40f, withBackground: false);
 
@@ -221,6 +240,7 @@ namespace Cloud2026.EditorTools
             linkGroup = BuildLinkGroup(panel.transform, resources, out linkUsernameInput, out linkPasswordInput, out linkButton, out linkWithUnityButton);
 
             playButton = UiFactory.CreateButton(panel.transform, resources, "PlayButton", "Jugar partida", 72f, 30f);
+            viewProfileButton = UiFactory.CreateButton(panel.transform, resources, "ViewProfileButton", "Ver perfil", 56f, 24f);
             signOutButton = UiFactory.CreateButton(panel.transform, resources, "SignOutButton", "Cerrar sesión", 48f, 20f);
             newGuestButton = UiFactory.CreateButton(panel.transform, resources, "NewGuestButton", "Nuevo invitado", 48f, 20f);
 
@@ -349,6 +369,45 @@ namespace Cloud2026.EditorTools
             leaveButton = UiFactory.CreateButton(panel.transform, resources, "LeaveMatchButton", "Salir", 48f, 20f);
 
             return panel;
+        }
+
+        // --- Perfil (Cloud Save, sin login propio) ---------------------------
+
+        private static GameObject BuildPerfilRoot(Transform parent, TMP_DefaultControls.Resources resources)
+        {
+            var root = UiFactory.CreatePanel(parent, "PerfilRoot", PanelWidth, withBackground: true);
+            var panel = root.AddComponent<PlayerProfilePanel>();
+
+            UiFactory.CreateText(root.transform, resources, "Title",
+                "Perfil del jugador · Cloud Save", 38f, 54f, Color.white);
+
+            var profileText = UiFactory.CreateText(root.transform, resources, "ProfileText", "",
+                20f, 130f, UiFactory.SubtleText, TextAlignmentOptions.TopLeft);
+
+            var simulateButton = UiFactory.CreateButton(root.transform, resources,
+                "SimulateProgressButton", "Simular progreso y guardar");
+            var loadButton = UiFactory.CreateButton(root.transform, resources,
+                "LoadFromCloudButton", "Cargar desde la nube");
+
+            var statusText = UiFactory.CreateText(root.transform, resources, "StatusText", "", 22f, 40f, Color.white);
+            var loadingIndicator = BuildLoadingIndicator(root.transform);
+
+            var backButton = UiFactory.CreateButton(root.transform, resources, "BackToMenuButton", "Volver al menú", 48f, 20f);
+
+            var serialized = new SerializedObject(panel);
+
+            // mainMenuRoot / perfilRoot se dejan sin asignar aquí a propósito: loginRoot
+            // todavía no existe en este punto de la construcción. Los engancha BuildUi
+            // después, igual que hace con mainMenuRoot/partidaRoot en TurnMatchPanel.
+            UiFactory.Wire(serialized, "profileText", profileText);
+            UiFactory.Wire(serialized, "simulateProgressButton", simulateButton);
+            UiFactory.Wire(serialized, "loadFromCloudButton", loadButton);
+            UiFactory.Wire(serialized, "statusText", statusText);
+            UiFactory.Wire(serialized, "loadingIndicator", loadingIndicator);
+            UiFactory.Wire(serialized, "backToMenuButton", backButton);
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+
+            return root;
         }
 
         private static void AddSceneToBuildSettings()
