@@ -246,8 +246,20 @@ namespace Cloud2026.Services
         /// <summary>
         /// Crea una cuenta nueva con usuario y contraseña y deja la sesión iniciada.
         /// </summary>
+        /// <remarks>
+        /// El cliente debe estar iniciado sesión con una cuenta de Unity antes de poder usar
+        /// credenciales de usuario/contraseña. Si la sesión actual es anónima, este método
+        /// fallará con "external token not provided". El juego debe guiar al usuario para
+        /// que primero inicie sesión con su cuenta de Unity (<see cref="SignInWithUnityAsync"/>).
+        /// </remarks>
         public Task<bool> SignUpWithUsernamePasswordAsync(string username, string password)
         {
+            if (!IsSignedIn)
+            {
+                OnSignInFailed?.Invoke("No hay sesión de Unity activa. Inicia sesión con una cuenta de Unity primero.");
+                return Task.FromResult(false);
+            }
+
             return RunCredentialOperationAsync(
                 "registro",
                 () => AuthenticationService.Instance.SignUpWithUsernamePasswordAsync(username, password),
@@ -258,8 +270,20 @@ namespace Cloud2026.Services
         /// <summary>
         /// Inicia sesión en una cuenta existente de usuario y contraseña.
         /// </summary>
+        /// <remarks>
+        /// El cliente debe estar iniciado sesión con una cuenta de Unity antes de poder usar
+        /// credenciales de usuario/contraseña. Si la sesión actual es anónima, este método
+        /// fallará con "external token not provided". El juego debe guiar al usuario para
+        /// que primero inicie sesión con su cuenta de Unity (<see cref="SignInWithUnityAsync"/>).
+        /// </remarks>
         public Task<bool> SignInWithUsernamePasswordAsync(string username, string password)
         {
+            if (!IsSignedIn)
+            {
+                OnSignInFailed?.Invoke("No hay sesión de Unity activa. Inicia sesión con una cuenta de Unity primero.");
+                return Task.FromResult(false);
+            }
+
             return RunCredentialOperationAsync(
                 "inicio de sesión",
                 () => AuthenticationService.Instance.SignInWithUsernamePasswordAsync(username, password),
@@ -271,11 +295,25 @@ namespace Cloud2026.Services
         /// Vincula usuario y contraseña a la sesión anónima en curso. El PlayerId no cambia,
         /// así que el progreso del jugador sobrevive al cambio de dispositivo.
         /// </summary>
+        /// <remarks>
+        /// La sesión actual debe tener una identidad de Unity Player Accounts vinculada (es decir,
+        /// el usuario debe haber iniciado sesión con <see cref="SignInWithUnityAsync"/> antes).
+        /// Si la sesión es anónima pura, este método fallará porque no hay token externo disponible.
+        /// </remarks>
         public Task<bool> LinkUsernamePasswordAsync(string username, string password)
         {
             if (!IsSignedIn)
             {
                 const string msg = "No hay sesión activa que vincular. Entra como invitado primero.";
+                Debug.LogWarning($"[UGSAuthService] {msg}");
+                OnSignInFailed?.Invoke(msg);
+                return Task.FromResult(false);
+            }
+
+            // Additional check: ensure we have a Unity account linked, not just an anonymous session
+            if (IsAnonymous)
+            {
+                const string msg = "No hay cuenta de Unity vinculada. Inicia sesión con una cuenta de Unity primero para usar credenciales.";
                 Debug.LogWarning($"[UGSAuthService] {msg}");
                 OnSignInFailed?.Invoke(msg);
                 return Task.FromResult(false);
@@ -320,6 +358,13 @@ namespace Cloud2026.Services
                 {
                     Debug.Log("[UGSAuthService] Abriendo el navegador para iniciar sesión con una cuenta de Unity...");
                     await PlayerAccountService.Instance.StartSignInAsync();
+
+                    // Validar que el token de acceso esté disponible después del sign-in
+                    if (string.IsNullOrEmpty(PlayerAccountService.Instance.AccessToken))
+                    {
+                        OnSignInFailed?.Invoke("No se recibió un token de acceso de la cuenta de Unity. El usuario pudo cancelar el login.");
+                        return false;
+                    }
                 }
 
                 await AuthenticationService.Instance.SignInWithUnityAsync(PlayerAccountService.Instance.AccessToken);
